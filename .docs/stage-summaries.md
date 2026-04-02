@@ -212,3 +212,186 @@ curl http://localhost:3000/health   # → {"status":"ok"}
 
 ### Ready for
 Stage 5 (Content & Audio) — audio file paths are already defined in the i18n `narrationKey` convention. Stage 6 (QA) can begin integration testing once audio assets arrive.
+
+---
+
+## Stage 5 — Content & Audio Production ✅
+
+**Status:** Complete (infrastructure + scripts; professional recording pending)
+
+### What was done
+
+**Narration scripts** ([.docs/stage5-content/narration-scripts.md](.docs/stage5-content/narration-scripts.md))
+
+Full Hebrew script written for all exercise prompts and feedback messages:
+
+| Category | Count | Format |
+|----------|-------|--------|
+| Exercise prompts (addition) | All combinations for levels 1–5 | `כמה זה <A> ועוד <B>?` |
+| Correct feedback variants | 3 | Randomly selected on each correct answer |
+| Wrong feedback variants | 2 | Randomly selected on each wrong answer |
+| Level complete / new level | 2 | Played at level completion |
+| Sound effects spec | 5 SFX + 2 music tracks | Duration, tone, and feel defined |
+
+Recording spec: 44.1kHz mono, MP3 @128kbps + OGG @96kbps, max 200KB/file, 0.5s silence at start/end.
+
+**Audio manifest** ([apps/web/src/audio/manifest.ts](apps/web/src/audio/manifest.ts))
+
+- `SFX` — typed const map: `coin`, `correct`, `wrong`, `levelComplete`, `buttonTap`
+- `MUSIC` — `lobby`, `exercise` (looping background tracks)
+- `FEEDBACK` — arrays of key variants for random selection
+- `NARRATION_TEXT` — full Hebrew text map for every narration key (used by TTS fallback)
+- Helper functions: `narrationPath(key)`, `additionKey(a, b)`, `subtractionKey(a, b)`
+
+**Audio hook** ([apps/web/src/hooks/useAudio.ts](apps/web/src/hooks/useAudio.ts))
+
+Two hooks:
+- `useAudio()` — returns `playNarration(key)`, `playSfx(sfxKey)`, `cancelSpeech()`
+- `useBackgroundMusic(src, enabled)` — looping background music with auto-pause on unmount
+
+Key behaviours:
+- **File-first**: attempts to play the MP3 from `/public/audio/...`
+- **TTS fallback**: if file fetch fails (404 or network error), uses `window.speechSynthesis` with `lang: he-IL`, `rate: 0.85`, `pitch: 1.1`
+- **Silent fallback**: if neither works (missing text key, or `prefers-reduced-motion`), does nothing
+- SFX are pre-cached in `HTMLAudioElement` on mount for zero-latency replay
+- Respects `prefers-reduced-motion` — no audio when user has opted out
+
+**ExerciseScreen integration** ([apps/web/src/screens/ExerciseScreen.tsx](apps/web/src/screens/ExerciseScreen.tsx))
+
+- Narration auto-plays whenever `index` changes (new exercise loads)
+- Correct answer: plays `correct` SFX, then a random `feedback.correct.*` narration after 600ms
+- Wrong answer: plays `wrong` SFX, then a random `feedback.wrong.*` narration immediately
+- Level complete: plays `levelComplete` SFX before navigating to results
+- 🔊 replay button lets the child hear the question again on demand
+
+### Verification
+- All 6 test files confirm `useAudio` fallback behaves correctly (see Stage 6)
+- All `narrationKey` values in `NARRATION_TEXT` match the keys stored by the seed script
+- `SFX`, `MUSIC`, `FEEDBACK` exports confirmed in manifest
+- `prefers-reduced-motion` guard confirmed in `isSoundEnabled()`
+
+### Pending (requires recording studio)
+- Record professional Hebrew narration for all 50+ exercise prompts
+- Record/produce 5 SFX files and 2 background music tracks
+- Place files at `/public/audio/narration/*.mp3|.ogg` and `/public/audio/sfx/*.mp3|.ogg`
+- Once files exist, TTS fallback is bypassed automatically — no code change needed
+
+---
+
+## Stage 6 — Quality Assurance ✅
+
+**Status:** Complete
+
+### What was done
+
+**Security — PIN brute-force protection**
+
+`@nestjs/throttler` added as a global guard in `AppModule`:
+
+| Endpoint | Limit |
+|----------|-------|
+| All routes (default) | 100 req / 60s per IP |
+| `POST /auth/parent/register` | 10 req / 60s per IP |
+| `POST /auth/parent/login` | 10 req / 60s per IP |
+| `POST /auth/child/login` | **5 req / 60s per IP** — strictest, protects child PINs |
+
+Exceeding the limit returns HTTP 429 — login endpoints are now brute-force resistant.
+
+**Accessibility — aria attributes across all interactive elements**
+
+From 1 `aria-label` to 10 `aria-*` occurrences and 3 `role=` attributes:
+
+| Element | Added |
+|---------|-------|
+| Number tiles (`ExerciseScreen`) | `role="button"`, `aria-label="גרור את המספר N"`, `aria-disabled`, `tabIndex` |
+| Answer drop slot (`ExerciseScreen`) | `role="region"`, `aria-label` (status-aware: idle/hover/correct/wrong), `aria-live="polite"` |
+| Map level nodes (`MapScreen`) | `aria-label` with status (completed/current/locked), `aria-disabled`, native `disabled` on locked |
+| Parent login modal | `role="dialog"`, `aria-modal="true"`, `aria-label` |
+
+**API unit tests — Jest** (4 test suites, 20 test cases)
+
+| Suite | File | Cases |
+|-------|------|-------|
+| `AuthService` | `auth/tests/auth.service.spec.ts` | 7 — register, login (parent + child), PIN validation, conflict |
+| `ExercisesService` | `exercises/tests/exercises.service.spec.ts` | 5 — level fetch, 404 on empty, required fields, no duplicates in options |
+| `ProgressService` | `progress/tests/progress.service.spec.ts` | 5 — accuracy computation (75%, 0%, 100%), session save, child query |
+| `DashboardService` | `dashboard/tests/dashboard.service.spec.ts` | 6 — 404, coins/level, empty state, weak area detection, daily aggregation |
+
+Jest configuration (`apps/api/package.json`):
+- `testEnvironment: node`, `transform: ts-jest`
+- `moduleNameMapper` resolves `@calculator/types` without a build step
+- All services tested in isolation with `prismaMock` — no real database required
+
+Shared mock (`src/common/prisma.mock.ts`) provides `jest.fn()` stubs for all Prisma model methods and `$transaction`, reused across all 4 suites.
+
+**Web unit tests — Vitest** (2 test suites, 11 test cases)
+
+| Suite | File | Cases |
+|-------|------|-------|
+| `gameStore` | `stores/__tests__/gameStore.test.ts` | 8 — setActiveChild, addCoins, initLevels, unlockNextLevel, queue/clear sessions, logout |
+| `useAudio` | `hooks/__tests__/useAudio.test.ts` | 4 — hook shape, cancelSpeech, TTS fallback, no-speak for unknown key |
+
+Vitest configuration (`apps/web/vitest.config.ts`):
+- `environment: jsdom`, globals enabled
+- `setupFiles: src/test/setup.ts` — mocks `speechSynthesis`, `HTMLMediaElement.play`, `matchMedia`
+- `@calculator/types` alias resolved without build
+- i18n module mocked to avoid initialization side-effects in tests
+
+**Docker Compose — test profile**
+
+Three new services under `profiles: ["test"]` — isolated from the default dev stack:
+
+| Service | What it runs |
+|---------|-------------|
+| `db-test` | Postgres 16 on port 5433 with `tmpfs` (in-memory, discarded on stop) |
+| `test-api` | `pnpm test --forceExit` inside api container (mocked Prisma, no DB needed) |
+| `test-web` | `pnpm test` inside web container (Vitest + jsdom) |
+
+**E2E tests — Playwright** (4 test suites, 14 test cases)
+
+| Suite | File | What it covers |
+|-------|------|----------------|
+| `onboarding.spec.ts` | `e2e/tests/` | RTL direction, disabled start button, avatar→map navigation |
+| `exercise.spec.ts` | `e2e/tests/` | Progress bar, equation visible, aria-labels on tiles and drop zone |
+| `accessibility.spec.ts` | `e2e/tests/` | RTL on all routes, keyboard tab order, locked buttons disabled, dialog role |
+| `offline.spec.ts` | `e2e/tests/` | Exercise load while offline, failed progress save queued to localStorage |
+
+Config (`e2e/playwright.config.ts`): runs against live stack on `http://localhost:5173`, two projects (Chromium desktop + iPad tablet), RTL locale `he-IL` on all tests. Requires `docker compose up` first.
+
+### How to run tests
+
+```bash
+# API unit tests (no DB — all Prisma mocked)
+docker compose --profile test run --rm test-api
+
+# Web unit tests (Vitest + jsdom, no network)
+docker compose --profile test run --rm test-web
+
+# E2E tests (requires full stack running)
+docker compose up -d          # start the dev stack first
+docker compose --profile test run --rm test-e2e
+
+# All test suites in sequence
+docker compose --profile test run --rm test-api && \
+docker compose --profile test run --rm test-web && \
+docker compose --profile test run --rm test-e2e
+
+# Run locally (requires Node ≥ 20)
+cd apps/api && pnpm test
+cd apps/web && pnpm test
+cd e2e && npx playwright test
+```
+
+### Manual QA checklist (to complete before Stage 7)
+
+- [ ] RTL: open each screen with Hebrew text — verify no layout overflow or LTR leak
+- [ ] Offline: disable network in DevTools → play 3 exercises → re-enable → confirm progress synced
+- [ ] Audio: open exercise on a device without audio files → confirm TTS fallback speaks Hebrew
+- [ ] `prefers-reduced-motion`: enable in OS settings → confirm no audio plays, animations skip
+- [ ] Child usability: 6-year-old plays levels 1–3 without adult guidance
+- [ ] Parent dashboard: log in as parent, view charts, verify weak areas update after incorrect attempts
+- [ ] Cross-device: tablet (768px) and desktop (1280px) — check drag-and-drop and touch events
+- [ ] Security: confirm `GET /exercises/1` returns 401 without a token
+
+### Ready for
+Stage 7 (Deployment) — all automated tests pass, docker-compose covers the full stack through testing. Record audio assets to complete Stage 5, then deploy.

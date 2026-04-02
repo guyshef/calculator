@@ -37,6 +37,9 @@ export default function ParentLoginModal({ onClose }: Props) {
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       onClick={onClose}
+      aria-modal="true"
+      aria-label="כניסה לאזור הורים"
+      role="dialog"
       style={{
         position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
@@ -52,7 +55,7 @@ export default function ParentLoginModal({ onClose }: Props) {
           boxShadow: 'var(--shadow-modal)', display: 'flex', flexDirection: 'column', gap: 16,
         }}
       >
-        <h3 style={{ fontSize: 24, textAlign: 'center' }}>{t('parent.title')}</h3>
+        <h3 id="parent-modal-title" style={{ fontSize: 24, textAlign: 'center' }}>{t('parent.title')}</h3>
 
         {['email', 'password'].map((field) => (
           <input

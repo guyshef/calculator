@@ -6,6 +6,8 @@ import { useQuery } from '@tanstack/react-query';
 import { DndContext, DragEndEvent, useDroppable, useDraggable } from '@dnd-kit/core';
 import { exercisesApi, progressApi } from '../api/client';
 import { useGameStore } from '../stores/gameStore';
+import { useAudio } from '../hooks/useAudio';
+import { FEEDBACK } from '../audio/manifest';
 import type { Exercise } from '@calculator/types';
 
 // ─── Draggable tile ───────────────────────────────────────────────────────────
@@ -17,6 +19,10 @@ function NumberTile({ id, value, disabled }: { id: string; value: number; disabl
       ref={setNodeRef}
       {...listeners}
       {...attributes}
+      role="button"
+      aria-label={`גרור את המספר ${value}`}
+      aria-disabled={disabled}
+      tabIndex={disabled ? -1 : 0}
       animate={{ scale: isDragging ? 1.12 : 1, rotate: isDragging ? -3 : 0 }}
       style={{
         width: 64, height: 64,
@@ -40,9 +46,14 @@ function NumberTile({ id, value, disabled }: { id: string; value: number; disabl
 
 function AnswerSlot({ value, isCorrect, isWrong }: { value: number | null; isCorrect: boolean; isWrong: boolean }) {
   const { isOver, setNodeRef } = useDroppable({ id: 'answer-slot' });
+  const statusLabel = isCorrect ? 'תשובה נכונה' : isWrong ? 'תשובה שגויה' : isOver ? 'שחרר כאן' : 'גרור תשובה לכאן';
   return (
     <div
       ref={setNodeRef}
+      role="region"
+      aria-label={statusLabel}
+      aria-live="polite"
+      aria-atomic="true"
       style={{
         width: 72, height: 72,
         borderRadius: 'var(--radius-md)',
@@ -75,6 +86,7 @@ export default function ExerciseScreen() {
   const coinsRef = useRef(0);
 
   const levelNum = parseInt(level ?? '1', 10);
+  const { playNarration, playSfx } = useAudio();
 
   const { data, isLoading } = useQuery({
     queryKey: ['exercises', levelNum],
@@ -84,11 +96,13 @@ export default function ExerciseScreen() {
   const exercises: Exercise[] = data?.exercises ?? [];
   const current = exercises[index];
 
+  // Auto-play narration when exercise changes
   useEffect(() => {
     setDroppedAnswer(null);
     setIsCorrect(false);
     setIsWrong(false);
-  }, [index]);
+    if (current) playNarration(current.narrationKey);
+  }, [index, current]);
 
   const handleDragEnd = (event: DragEndEvent) => {
     if (!event.over || event.over.id !== 'answer-slot' || !current) return;
@@ -100,8 +114,12 @@ export default function ExerciseScreen() {
       setIsCorrect(true);
       coinsRef.current += 1;
       attemptsRef.current.push({ exerciseId: current.id, correct: true, answeredAt: new Date().toISOString() });
+      playSfx('correct');
+      const feedbackKey = FEEDBACK.correct[Math.floor(Math.random() * FEEDBACK.correct.length)];
+      setTimeout(() => playNarration(feedbackKey), 600);
       setTimeout(() => {
         if (index + 1 >= exercises.length) {
+          playSfx('levelComplete');
           finishLevel();
         } else {
           setIndex((i) => i + 1);
@@ -111,6 +129,9 @@ export default function ExerciseScreen() {
       setIsWrong(true);
       setShake(true);
       attemptsRef.current.push({ exerciseId: current.id, correct: false, answeredAt: new Date().toISOString() });
+      playSfx('wrong');
+      const feedbackKey = FEEDBACK.wrong[Math.floor(Math.random() * FEEDBACK.wrong.length)];
+      playNarration(feedbackKey);
       setTimeout(() => { setShake(false); setDroppedAnswer(null); setIsWrong(false); }, 800);
     }
   };
@@ -161,9 +182,18 @@ export default function ExerciseScreen() {
         />
       </div>
 
-      {/* Avatar */}
-      <div style={{ textAlign: 'center', fontSize: 64, marginBottom: 16 }}>
+      {/* Avatar + narration replay */}
+      <div style={{ textAlign: 'center', fontSize: 64, marginBottom: 8 }}>
         {isCorrect ? '🎉' : isWrong ? '😟' : '🐱'}
+      </div>
+      <div style={{ textAlign: 'center', marginBottom: 16 }}>
+        <button
+          onClick={() => current && playNarration(current.narrationKey)}
+          style={{ background: 'none', fontSize: 22, color: 'var(--color-secondary-dark)', cursor: 'pointer' }}
+          aria-label="שמע שוב"
+        >
+          🔊 {t('exercise.replay')}
+        </button>
       </div>
 
       {/* Equation */}

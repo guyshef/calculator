@@ -54,6 +54,13 @@ export default function MapScreen() {
             key={node.level}
             whileTap={node.status !== 'locked' ? { scale: 0.92 } : {}}
             onClick={() => handleNodeTap(node.level, node.status)}
+            aria-label={
+              node.status === 'completed' ? `שלב ${node.level} — הושלם` :
+              node.status === 'current'   ? `שלב ${node.level} — לחץ לשחק` :
+                                           `שלב ${node.level} — נעול`
+            }
+            aria-disabled={node.status === 'locked'}
+            disabled={node.status === 'locked'}
             style={{
               width: 100,
               height: 100,

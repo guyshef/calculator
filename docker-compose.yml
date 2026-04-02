@@ -19,6 +19,24 @@ services:
       timeout: 5s
       retries: 10
 
+  # ── PostgreSQL (isolated test database) ───────────────────────────────────────
+  db-test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: calculator
+      POSTGRES_PASSWORD: calculator
+      POSTGRES_DB: calculator_test
+    ports:
+      - "5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data   # in-memory: fast, discarded on stop
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U calculator"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    profiles: ["test"]
+
   # ── Redis ─────────────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
@@ -75,6 +93,52 @@ services:
              pnpm prisma migrate deploy &&
              pnpm prisma db seed"
     restart: "no"
+
+  # ── API unit tests (Jest, no DB required — services use mocked Prisma) ─────────
+  test-api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile.dev
+    environment:
+      DATABASE_URL: postgresql://calculator:calculator@db-test:5432/calculator_test
+      JWT_SECRET: test-secret
+      NODE_ENV: test
+    volumes:
+      - ./apps/api/src:/app/apps/api/src
+      - ./packages/types/src:/app/packages/types/src
+    command: >
+      sh -c "cd /app/apps/api && pnpm test --forceExit --passWithNoTests"
+    restart: "no"
+    profiles: ["test"]
+
+  # ── Web unit tests (Vitest, jsdom — no network required) ──────────────────────
+  test-web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile.dev
+    volumes:
+      - ./apps/web/src:/app/apps/web/src
+      - ./packages/types/src:/app/packages/types/src
+    command: >
+      sh -c "cd /app/apps/web && pnpm test"
+    restart: "no"
+    profiles: ["test"]
+
+  # ── Playwright E2E tests (runs against the live stack) ───────────────────────
+  test-e2e:
+    image: mcr.microsoft.com/playwright:v1.50.1-jammy
+    working_dir: /app/e2e
+    volumes:
+      - ./e2e:/app/e2e
+    environment:
+      PLAYWRIGHT_BASE_URL: http://web:5173
+    command: >
+      sh -c "npm install && npx playwright install --with-deps chromium &&
+             npx playwright test --config playwright.config.ts"
+    depends_on:
+      api:
+        condition: service_healthy
+    profiles: ["test"]
 
   # ── React + Vite Frontend ─────────────────────────────────────────────────────
   web:
