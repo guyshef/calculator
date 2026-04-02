@@ -395,3 +395,70 @@ cd e2e && npx playwright test
 
 ### Ready for
 Stage 7 (Deployment) — all automated tests pass, docker-compose covers the full stack through testing. Record audio assets to complete Stage 5, then deploy.
+
+---
+
+## Stage 7 — Deployment & Post-Launch ✅
+
+**Status:** Complete
+
+### What was done
+
+**Production Dockerfiles**
+
+| File | What it produces |
+|------|-----------------|
+| `apps/api/Dockerfile` | Multi-stage build: installs deps → compiles NestJS → strips dev deps → runs `prisma migrate deploy && node dist/main` |
+| `apps/web/Dockerfile` | Multi-stage build: Vite production build (VITE_API_URL baked in) → Nginx 1.27 serving static assets |
+| `apps/web/nginx.conf` | SPA fallback, gzip, 1-year immutable cache for Vite-fingerprinted assets, `no-store` for `sw.js`, security headers |
+
+**Railway (API + PostgreSQL + Redis)**
+
+- `railway.json` at repo root — points to `apps/api/Dockerfile`, health-check on `/health`, restart on failure
+- Railway auto-injects `DATABASE_URL` and `REDIS_URL` from its Postgres and Redis plugins
+- Required manual env vars: `JWT_SECRET`, `CORS_ORIGIN` (Vercel URL), optionally `SENTRY_DSN`
+
+**Vercel (Frontend)**
+
+- `apps/web/vercel.json` — framework: Vite, SPA rewrite `/*` → `/index.html`, immutable asset caching, security headers
+- `VITE_API_URL` must be set in Vercel's environment variables panel (baked into the bundle at build time)
+- Optionally set `VITE_SENTRY_DSN`
+
+**GitHub Actions**
+
+| Workflow | Trigger | What it does |
+|----------|---------|-------------|
+| `ci.yml` | Push to `main`/`develop`, PRs to `main` | Lint + typecheck → Jest (API) → Vitest (web) → Playwright E2E (Chromium, with Postgres + Redis services) |
+| `deploy.yml` | Push to `main` | Builds web with `VITE_API_URL` → deploys to Vercel; deploys API Docker image to Railway |
+
+Required GitHub secrets: `RAILWAY_TOKEN`, `VERCEL_TOKEN`, `VERCEL_PROJECT_ID`, `VERCEL_ORG_ID`, `VITE_API_URL`.
+
+**Sentry (error tracking)**
+
+- API: `@sentry/node` initialized in `main.ts` when `SENTRY_DSN` is set; 20% trace sampling
+- Web: `@sentry/react` initialized in `main.tsx` when `VITE_SENTRY_DSN` is set; errors only sent in `production` mode
+- Both are no-ops if the DSN env var is absent — safe to deploy without Sentry
+
+**Updated `.env.example` files**
+
+Both `apps/api/.env.example` and `apps/web/.env.example` now include all production variables with comments explaining Railway/Vercel auto-injection.
+
+### How to deploy
+
+```bash
+# 1. Create Railway project, add Postgres + Redis plugins
+# 2. Set env vars in Railway: JWT_SECRET, CORS_ORIGIN, (SENTRY_DSN)
+# 3. Set env vars in Vercel: VITE_API_URL, (VITE_SENTRY_DSN)
+# 4. Add GitHub secrets: RAILWAY_TOKEN, VERCEL_TOKEN, VERCEL_PROJECT_ID, VERCEL_ORG_ID, VITE_API_URL
+# 5. Push to main — CI runs first, then deploy workflow fires
+
+# Manual Railway deploy (without GitHub Actions)
+railway up --service api
+
+# Manual Vercel deploy (without GitHub Actions)
+cd apps/web && VITE_API_URL=https://your-api.railway.app pnpm build
+vercel deploy --prebuilt --prod
+```
+
+### Ready for
+Post-launch: monitor Sentry for errors, track level drop-off and exercise error rates, collect parent feedback, plan first update cycle based on findings.

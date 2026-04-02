@@ -48,8 +48,26 @@ pnpm lint
 pnpm test
 pnpm typecheck
 
-# Run a single test file (from inside the app directory)
-cd apps/api && pnpm test -- path/to/file.spec.ts
+# Run a single test file
+cd apps/api && pnpm test -- path/to/file.spec.ts   # Jest
+cd apps/web && pnpm test -- path/to/file.test.ts   # Vitest
+```
+
+### Running Tests
+
+```bash
+# Unit tests (isolated, no DB required)
+docker compose --profile test run --rm test-api   # Jest (Prisma mocked)
+docker compose --profile test run --rm test-web   # Vitest + jsdom
+
+# E2E tests (requires full dev stack running first)
+docker compose up -d
+docker compose --profile test run --rm test-e2e
+
+# Run specific E2E suites locally (requires stack running at localhost:5173)
+cd e2e && pnpm test:a11y    # axe-core WCAG 2.1 AA across all screens
+cd e2e && pnpm test:perf    # CDP-throttled performance (4× CPU, slow 3G)
+cd e2e && pnpm test         # all suites
 ```
 
 ## Services (when stack is running)
@@ -118,6 +136,20 @@ Set in `docker-compose.yml` for development. For production, provide:
 | `CORS_ORIGIN` | `main.ts` | `http://localhost:5173` |
 | `PORT` | `main.ts` | `3000` |
 | `VITE_API_URL` | `apps/web/src/api/client.ts` | `http://localhost:3000` |
+
+## Deployment (Stage 7)
+
+**Frontend → Vercel:** Config at [apps/web/vercel.json](apps/web/vercel.json). `VITE_API_URL` must be set as an environment variable in Vercel (baked into the bundle at build time). The SPA rewrite rule redirects all paths to `index.html`.
+
+**Backend → Railway:** Config at [railway.json](railway.json) points to `apps/api/Dockerfile`. Railway auto-provides `DATABASE_URL` (Postgres plugin) and `REDIS_URL` (Redis plugin) — set `JWT_SECRET`, `CORS_ORIGIN`, and optionally `SENTRY_DSN` manually in Railway's variables panel.
+
+**Production Dockerfiles:** `apps/api/Dockerfile` and `apps/web/Dockerfile` are multi-stage builds for production. Dev uses `Dockerfile.dev`.
+
+**CI/CD:** GitHub Actions at `.github/workflows/`:
+- `ci.yml` — runs lint, typecheck, Jest, Vitest, and Playwright (Chromium only) on every PR to `main`
+- `deploy.yml` — deploys to Railway + Vercel on push to `main`; requires secrets: `RAILWAY_TOKEN`, `VERCEL_TOKEN`, `VERCEL_PROJECT_ID`, `VERCEL_ORG_ID`, `VITE_API_URL`
+
+**Sentry:** Initialized in `apps/api/src/main.ts` and `apps/web/src/main.tsx` when `SENTRY_DSN` / `VITE_SENTRY_DSN` env vars are present. Omitting them disables error tracking silently.
 
 ## Key Constraints
 
