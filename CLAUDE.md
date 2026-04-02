@@ -4,101 +4,124 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-A gamified math learning web app for children (ages 5–8), with RTL/Hebrew support, a parent monitoring dashboard, and offline capability. See [.docs/plan.md](.docs/plan.md) for the full stage-by-stage plan.
+A gamified math learning web app for children (ages 5–8), with RTL/Hebrew support, a parent monitoring dashboard, and offline capability. Planning documents are in [.docs/](.docs/).
 
-## Architecture
+## Monorepo Structure
 
-Monorepo with fully separated frontend and backend, communicating via REST API.
+pnpm workspaces + Turborepo. Three packages:
 
 ```
-calculator/
-├── apps/
-│   ├── web/        # React 18 + Vite (frontend)
-│   └── api/        # NestJS (backend)
-├── packages/
-│   └── types/      # Shared TypeScript types (DTOs, enums) used by both apps
-└── .docs/          # Architecture and planning documents
+apps/api/        # NestJS REST API (Node 20)
+apps/web/        # React 18 + Vite PWA
+packages/types/  # Shared TypeScript types consumed by both apps
 ```
 
-**Monorepo tooling:** pnpm workspaces + Turborepo.
+`@calculator/types` is resolved via `paths` alias in each app's `tsconfig.json` — no build step needed. Always define shared DTOs and enums there, not in either app.
 
-### Frontend (`apps/web`)
-React 18 + Vite PWA. Key responsibilities: game UI, drag-and-drop exercises, avatar animations, world map progression, parent dashboard charts, offline support via Service Worker.
+## Commands
 
-- State: Zustand
-- Drag & drop: dnd-kit
-- Animations: Lottie (designer exports) + Framer Motion (UI transitions)
-- Charts: Recharts (parent dashboard)
-- i18n/RTL: i18next + react-i18next
-- Data fetching: React Query + axios
-
-### Backend (`apps/api`)
-NestJS + TypeScript REST API. Key responsibilities: child/parent auth, progress tracking, exercise serving, aggregated dashboard data.
-
-- ORM: Prisma (PostgreSQL)
-- Auth: JWT (parents) + PIN (children) via `@nestjs/passport`
-- Cache: Redis via `@nestjs/cache-manager`
-- API docs: Swagger auto-generated at `/api`
-
-## Local Development
-
-All services run via Docker Compose — see [.docs/docker-testing.md](.docs/docker-testing.md) for full setup details.
+All commands require Node ≥20 and pnpm ≥9. The full stack runs inside Docker.
 
 ```bash
-# Start full stack (frontend, backend, Postgres, Redis)
+# Start all services (postgres, redis, migrate+seed, api, web)
 docker compose up
 
-# Run Prisma migrations
+# Rebuild after Dockerfile or dependency changes
+docker compose up --build
+
+# Run migrations manually inside container
 docker compose exec api pnpm prisma migrate dev
 
-# View logs
+# Seed the database
+docker compose exec api pnpm prisma db seed
+
+# Open Prisma Studio (DB browser)
+docker compose exec api pnpm prisma:studio
+
+# Tail logs for a specific service
 docker compose logs -f api
 docker compose logs -f web
+
+# Run from repo root (Turborepo delegates to each app)
+pnpm build
+pnpm lint
+pnpm test
+pnpm typecheck
+
+# Run a single test file (from inside the app directory)
+cd apps/api && pnpm test -- path/to/file.spec.ts
 ```
 
-Services when running:
-- Frontend: `http://localhost:5173`
-- Backend API: `http://localhost:3000`
-- Swagger docs: `http://localhost:3000/api`
-- Postgres: `localhost:5432`
-- Redis: `localhost:6379`
+## Services (when stack is running)
 
-Both services support hot reload inside containers (Vite HMR, NestJS watch mode).
+| Service | URL | Notes |
+|---------|-----|-------|
+| Frontend | `http://localhost:5173` | Vite HMR |
+| API | `http://localhost:3000` | NestJS watch mode |
+| Swagger | `http://localhost:3000/api` | Auto-generated |
+| Postgres | `localhost:5432` | `calculator` / `calculator` |
+| Redis | `localhost:6379` | |
 
-## Commands (once apps are scaffolded)
+Source files are volume-mounted — edits to `apps/api/src` and `apps/web/src` hot-reload without rebuilding the image.
 
-Run from repo root via Turborepo, or `cd` into the specific app.
+## Backend Architecture (`apps/api`)
 
+NestJS modules wired in `app.module.ts`:
+
+| Module | Responsibility |
+|--------|---------------|
+| `PrismaModule` | Global, provides `PrismaService` to all modules |
+| `AuthModule` | Parent email/password + child PIN login, JWT issuance |
+| `ExercisesModule` | Fetch exercises by level, generate distractor options |
+| `ProgressModule` | Save sessions (Prisma transaction), unlock next level |
+| `DashboardModule` | 30-day aggregations for parent dashboard |
+| `HealthModule` | `GET /health` — used by Docker healthcheck |
+
+**Auth:** `JwtStrategy` (passport-jwt) validates Bearer tokens; payload is `{ sub: userId, role: 'parent'|'child' }`. JWT expiry is 7 days. Child PINs and parent passwords are both bcrypt-hashed (10 rounds).
+
+**Level unlock rule:** `ProgressService.saveSession` runs a transaction — if `accuracy >= 0.7`, it increments `child.currentLevel`.
+
+**Exercise options:** `ExercisesService` generates 4 random distractors using ±1–5 offsets from the correct answer, then shuffles all 5.
+
+## Frontend Architecture (`apps/web`)
+
+**Routing:** React Router 7, all routes wrapped in `AnimatePresence` for screen transitions. Routes: `/`, `/avatar`, `/map`, `/exercise/:level`, `/results`, `/parent`.
+
+**State (`stores/gameStore.ts`):** Zustand with `persist` middleware — writes `activeChild`, `levels`, and `pendingSessions` to `localStorage`. `parentToken` is intentionally NOT persisted (session-only).
+
+**API client (`api/client.ts`):** Axios instance; a request interceptor attaches the JWT from the Zustand store before every request.
+
+**Offline sync:** When `progressApi.save()` fails (network unavailable), the session is pushed to `pendingSessions` in the store. The next successful save should flush the queue via `clearPendingSessions()`. The Workbox Service Worker (via `vite-plugin-pwa`) caches exercise responses with `CacheFirst` (50 entries, 24hr TTL).
+
+**RTL:** `<html dir="rtl" lang="he">` is set in `index.html`. All CSS uses flexbox, which is RTL-aware. Never use `float` or hardcoded `left`/`right` margins without RTL equivalents.
+
+**Design tokens:** Defined as CSS custom properties in `src/index.css` — `--color-primary`, `--radius-md`, `--shadow-tile`, etc. Match values from [.docs/stage2-design/design-system.md](.docs/stage2-design/design-system.md) when adding new styles.
+
+## Prisma Schema
+
+5 models: `Parent → Child → Session → Attempt ← Exercise`. Child deletion cascades to sessions and attempts. `accuracy` is stored as a float computed at save time, not re-derived from attempts.
+
+After any schema change:
 ```bash
-# Install dependencies
-pnpm install
-
-# Dev (all services via docker compose)
-docker compose up
-
-# Build all
-pnpm run build
-
-# Lint all
-pnpm run lint
-
-# Test all
-pnpm run test
-
-# Test a single file (from within an app directory)
-pnpm run test -- path/to/file.spec.ts
-
-# Prisma — generate client after schema changes
+docker compose exec api pnpm prisma migrate dev --name describe-your-change
 docker compose exec api pnpm prisma generate
-
-# Prisma — open database browser
-docker compose exec api pnpm prisma studio
 ```
 
-## Key Decisions
+## Environment Variables
 
-- **Same language everywhere:** TypeScript on frontend and backend. Shared types live in `packages/types` — define DTOs there, import in both apps.
-- **Inter-container networking:** The API connects to `db:5432` and `redis:6379` (Docker service names), not `localhost`.
-- **RTL:** All layouts must support `direction: rtl`. Test every new screen in RTL mode.
-- **Offline:** Exercises must be playable without a network connection. Use the Service Worker cache for exercise data; queue progress writes and sync on reconnect.
-- **Child vs. parent auth:** Children authenticate with a PIN (no email). Parents use email + password + JWT.
+Set in `docker-compose.yml` for development. For production, provide:
+
+| Variable | Used by | Default in dev |
+|----------|---------|---------------|
+| `DATABASE_URL` | Prisma | `postgresql://calculator:calculator@db:5432/calculator_dev` |
+| `JWT_SECRET` | `AuthModule`, `JwtStrategy` | `dev-secret-change-in-production` |
+| `CORS_ORIGIN` | `main.ts` | `http://localhost:5173` |
+| `PORT` | `main.ts` | `3000` |
+| `VITE_API_URL` | `apps/web/src/api/client.ts` | `http://localhost:3000` |
+
+## Key Constraints
+
+- **Shared types first:** New API response shapes go in `packages/types/src/index.ts` before implementing in either app.
+- **Inter-container hostnames:** API uses `db:5432` and `redis:6379` — not `localhost`.
+- **Hebrew narration keys:** Exercises reference `narrationKey` strings (e.g. `ex.addition.3.4`) — audio file paths follow the same convention in `audio/narration/`.
+- **Distractor-safe options:** Exercise options always include the correct answer; never filter it out when modifying `ExercisesService`.

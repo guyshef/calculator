@@ -17,7 +17,9 @@
       "Bash(docker info:*)",
       "Bash(docker buildx:*)",
       "Bash(DOCKER_BUILDKIT=0 docker build -f /data/projects/calculator/apps/api/Dockerfile.dev -t calculator-api-test /data/projects/calculator)",
-      "Bash(grep \"@Get\\\\|@Post\\\\|@Put\\\\|@Delete\" /data/projects/calculator/apps/api/src/**/*.ts)"
+      "Bash(grep \"@Get\\\\|@Post\\\\|@Put\\\\|@Delete\" /data/projects/calculator/apps/api/src/**/*.ts)",
+      "Bash(tree -L 2 -d /data/projects/calculator --ignore node_modules -I 'node_modules|dist|.next|.angular')",
+      "Bash(grep -v node_modules echo \"---\")"
     ]
   }
 }
