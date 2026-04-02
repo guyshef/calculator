@@ -39,6 +39,12 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5173,
+    hmr: {
+      // When running behind Docker port-mapping, the browser connects to the
+      // host port, not the internal container port. VITE_HMR_PORT is set in
+      // docker-compose.yml to match the exposed host port (e.g. 3010).
+      clientPort: process.env.VITE_HMR_PORT ? parseInt(process.env.VITE_HMR_PORT) : undefined,
+    },
     proxy: {
       '/api-proxy': {
         target: process.env.VITE_API_URL || 'http://localhost:3000',

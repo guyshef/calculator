@@ -146,15 +146,18 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile.dev
     ports:
-      - "5173:5173"
+      - "3010:5173"
     environment:
       VITE_API_URL: http://localhost:3000
+      # Tell Vite's HMR client to connect on the host-side port (3010),
+      # not the internal container port (5173).
+      VITE_HMR_PORT: 3010
     volumes:
       - ./apps/web/src:/app/apps/web/src
       - ./packages/types/src:/app/packages/types/src
     depends_on:
       api:
-        condition: service_healthy
+        condition: service_started
 
 volumes:
   postgres_data:
