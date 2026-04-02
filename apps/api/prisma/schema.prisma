@@ -1,0 +1,64 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Parent {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  children  Child[]
+}
+
+model Child {
+  id           String    @id @default(cuid())
+  name         String
+  avatar       String
+  pin          String
+  coins        Int       @default(0)
+  currentLevel Int       @default(1)
+  parentId     String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  parent       Parent    @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  sessions     Session[]
+}
+
+model Exercise {
+  id           String    @id @default(cuid())
+  level        Int
+  type         String
+  operandA     Int
+  operandB     Int
+  answer       Int
+  narrationKey String
+  attempts     Attempt[]
+}
+
+model Session {
+  id          String    @id @default(cuid())
+  childId     String
+  level       Int
+  coinsEarned Int
+  accuracy    Float
+  completedAt DateTime
+  createdAt   DateTime  @default(now())
+  child       Child     @relation(fields: [childId], references: [id], onDelete: Cascade)
+  attempts    Attempt[]
+}
+
+model Attempt {
+  id          String   @id @default(cuid())
+  sessionId   String
+  exerciseId  String
+  correct     Boolean
+  answeredAt  DateTime
+  session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  exercise    Exercise @relation(fields: [exerciseId], references: [id])
+}
