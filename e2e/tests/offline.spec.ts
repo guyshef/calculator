@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { mockExercisesApi, seedAuthenticatedChild } from './helpers';
 
 /**
  * Offline / PWA behaviour.
@@ -7,28 +8,21 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Offline behaviour', () => {
   test('exercise screen loads when API is unreachable (cached exercises)', async ({ page, context }) => {
-    // First load — exercises are cached by the Service Worker
-    await page.goto('/');
-    await page.evaluate(() => {
-      localStorage.setItem('calculator-game-store', JSON.stringify({
-        state: {
-          activeChild: { id: 'c1', name: 'Test', avatar: 'cat-1', coins: 0, currentLevel: 1, token: '' },
-          levels: [{ level: 1, status: 'current', stars: 0 }],
-          pendingSessions: [],
-        },
-        version: 0,
-      }));
-    });
+    test.setTimeout(30000);
 
-    // Go online first to seed the cache
+    // Intercept exercises so they load with a valid mock response (no auth required)
+    await mockExercisesApi(page);
+    await seedAuthenticatedChild(page);
+
+    // First visit while online — tiles should render
     await page.goto('/exercise/1');
-    await page.waitForSelector('[role="button"][aria-label*="גרור"]', { timeout: 5000 }).catch(() => null);
+    await page.getByRole('button', { name: /גרור את המספר/i }).first().waitFor({ state: 'visible' });
 
-    // Now go offline
+    // Now go offline and reload
     await context.setOffline(true);
     await page.reload();
 
-    // App should still render (from SW cache or localStorage)
+    // App should still render (Service Worker cache or Playwright route cache)
     await expect(page.locator('body')).toBeVisible();
 
     // Restore network
@@ -40,7 +34,10 @@ test.describe('Offline behaviour', () => {
     await page.evaluate(() => {
       localStorage.setItem('calculator-game-store', JSON.stringify({
         state: {
-          activeChild: { id: 'c1', name: 'Test', avatar: 'cat-1', coins: 5, currentLevel: 1, token: 'mock-token' },
+          activeChild: {
+            id: 'c1', name: 'Test', avatar: 'cat-1',
+            coins: 5, currentLevel: 1, token: 'mock-token',
+          },
           levels: [{ level: 1, status: 'current', stars: 0 }],
           pendingSessions: [],
         },
@@ -48,18 +45,22 @@ test.describe('Offline behaviour', () => {
       }));
     });
 
-    // Block the progress API endpoint
+    // Block the progress API endpoint so saves fail
     await context.route('**/progress', (route) => route.abort());
 
-    // Trigger session save by navigating to results with state
+    // Simulate what ExerciseScreen does when progressApi.save fails:
+    // directly push a session into pendingSessions via localStorage manipulation
     await page.evaluate(() => {
-      // Simulate what ExerciseScreen does when progressApi.save fails
       const raw = localStorage.getItem('calculator-game-store');
       if (!raw) return;
       const store = JSON.parse(raw);
       store.state.pendingSessions = [{
-        childId: 'c1', level: 1, coinsEarned: 3, accuracy: 1,
-        completedAt: new Date().toISOString(), attempts: [],
+        childId: 'c1',
+        level: 1,
+        coinsEarned: 3,
+        accuracy: 1,
+        completedAt: new Date().toISOString(),
+        attempts: [],
       }];
       localStorage.setItem('calculator-game-store', JSON.stringify(store));
     });
