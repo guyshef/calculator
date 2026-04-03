@@ -1,13 +1,11 @@
 FROM node:20-alpine
 
-RUN apk add --no-cache python3 make g++
-
 RUN npm install -g pnpm
 
 WORKDIR /app
 
 # Copy workspace manifests for dependency resolution
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY package.json pnpm-workspace.yaml ./
 COPY packages/types/package.json ./packages/types/
 COPY apps/api/package.json ./apps/api/
 
@@ -16,11 +14,6 @@ RUN pnpm install --frozen-lockfile
 # Copy all source files
 COPY packages/types ./packages/types
 COPY apps/api ./apps/api
-
-WORKDIR /app/packages/types
-
-# Build shared types package to CommonJS so the compiled API can require it
-RUN pnpm build
 
 WORKDIR /app/apps/api
 

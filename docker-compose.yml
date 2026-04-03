@@ -14,7 +14,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U calculator -d calculator_dev"]
+      test: ["CMD-SHELL", "pg_isready -U calculator"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -31,7 +31,7 @@ services:
     tmpfs:
       - /var/lib/postgresql/data   # in-memory: fast, discarded on stop
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U calculator -d calculator_test"]
+      test: ["CMD-SHELL", "pg_isready -U calculator"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -59,7 +59,7 @@ services:
       DATABASE_URL: postgresql://calculator:calculator@db:5432/calculator_dev
       REDIS_URL: redis://redis:6379
       JWT_SECRET: dev-secret-change-in-production
-      CORS_ORIGIN: http://localhost:5173,http://localhost:3010
+      CORS_ORIGIN: http://localhost:5173
       NODE_ENV: development
       PORT: 3000
     volumes:
@@ -85,14 +85,12 @@ services:
       dockerfile: apps/api/Dockerfile.dev
     environment:
       DATABASE_URL: postgresql://calculator:calculator@db:5432/calculator_dev
-    volumes:
-      - ./apps/api/prisma:/app/apps/api/prisma
     depends_on:
       db:
         condition: service_healthy
     command: >
       sh -c "cd /app/apps/api &&
-             pnpm prisma migrate dev --name init --skip-seed &&
+             pnpm prisma migrate deploy &&
              pnpm prisma db seed"
     restart: "no"
 

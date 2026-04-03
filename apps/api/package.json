@@ -4,7 +4,7 @@
   "scripts": {
     "build": "nest build",
     "dev": "nest start --watch",
-    "start": "node dist/apps/api/src/main",
+    "start": "node dist/main",
     "lint": "eslint src --ext .ts",
     "test": "jest",
     "typecheck": "tsc --noEmit",
@@ -60,7 +60,6 @@
     "jest": "^29.7.0",
     "prisma": "^6.5.0",
     "ts-jest": "^29.2.5",
-    "ts-node": "^10.9.2",
     "typescript": "^5.7.2"
   }
 }
