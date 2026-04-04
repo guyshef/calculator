@@ -5,10 +5,17 @@ const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 export const api = axios.create({ baseURL: BASE_URL });
 
-// Attach JWT from store on every request
+// Attach JWT from store on every request.
+// Parent-only endpoints (/auth/children, /dashboard) always use parentToken.
+// Everything else (exercises, progress) uses the child token.
 api.interceptors.request.use((config) => {
   const { activeChild, parentToken } = useGameStore.getState();
-  const token = activeChild?.token ?? parentToken;
+  const url = config.url ?? '';
+  const isParentEndpoint =
+    url.includes('/auth/children') ||
+    url.includes('/auth/parent') ||
+    url.includes('/dashboard');
+  const token = isParentEndpoint ? parentToken : (activeChild?.token ?? parentToken);
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });

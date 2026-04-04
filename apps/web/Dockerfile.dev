@@ -4,8 +4,8 @@ RUN npm install -g pnpm
 
 WORKDIR /app
 
-# Copy workspace manifests for dependency resolution
-COPY package.json pnpm-workspace.yaml ./
+# Copy workspace manifests + lockfile for reproducible installs
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY packages/types/package.json ./packages/types/
 COPY apps/web/package.json ./apps/web/
 

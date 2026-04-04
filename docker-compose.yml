@@ -59,12 +59,13 @@ services:
       DATABASE_URL: postgresql://calculator:calculator@db:5432/calculator_dev
       REDIS_URL: redis://redis:6379
       JWT_SECRET: dev-secret-change-in-production
-      CORS_ORIGIN: http://localhost:5173
+      CORS_ORIGIN: http://localhost:5173,http://localhost:3010
       NODE_ENV: development
       PORT: 3000
     volumes:
       - ./apps/api/src:/app/apps/api/src
       - ./apps/api/prisma:/app/apps/api/prisma
+      - ./apps/api/nest-cli.json:/app/apps/api/nest-cli.json
       - ./packages/types/src:/app/packages/types/src
     depends_on:
       db:
@@ -132,12 +133,14 @@ services:
       - ./e2e:/app/e2e
     environment:
       PLAYWRIGHT_BASE_URL: http://web:5173
+      API_URL: http://api:3000
     command: >
-      sh -c "npm install && npx playwright install --with-deps chromium &&
-             npx playwright test --config playwright.config.ts"
+      sh -c "npm install && npx playwright test --config playwright.config.ts --project=chromium"
     depends_on:
       api:
         condition: service_healthy
+      web:
+        condition: service_started
     profiles: ["test"]
 
   # ── React + Vite Frontend ─────────────────────────────────────────────────────

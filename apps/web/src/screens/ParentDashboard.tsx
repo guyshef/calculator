@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
@@ -17,8 +17,14 @@ export default function ParentDashboard() {
     queryKey: ['children'],
     queryFn: authApi.getChildren,
     enabled: !!parentToken,
-    onSuccess: (data: any[]) => { if (data.length > 0 && !selectedChildId) setSelectedChildId(data[0].id); },
-  } as any);
+  });
+
+  // Auto-select first child once the list loads
+  useEffect(() => {
+    if (children.length > 0 && !selectedChildId) {
+      setSelectedChildId((children[0] as any).id);
+    }
+  }, [children]);
 
   const { data: dashboard } = useQuery({
     queryKey: ['dashboard', selectedChildId],

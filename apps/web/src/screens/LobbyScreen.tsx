@@ -12,6 +12,10 @@ export default function LobbyScreen() {
   const navigate = useNavigate();
   const { setActiveChild, parentToken } = useGameStore();
   const [showParentLogin, setShowParentLogin] = useState(false);
+  const [pendingChild, setPendingChild] = useState<{ id: string; name: string; avatar: string; coins: number; currentLevel: number } | null>(null);
+  const [pin, setPin] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [pinLoading, setPinLoading] = useState(false);
 
   const { data: children = [] } = useQuery({
     queryKey: ['children'],
@@ -20,8 +24,25 @@ export default function LobbyScreen() {
   });
 
   const handleSelectChild = (child: { id: string; name: string; avatar: string; coins: number; currentLevel: number }) => {
-    setActiveChild({ ...child, avatar: child.avatar as any, token: '' });
-    navigate('/map');
+    setPendingChild(child);
+    setPin('');
+    setPinError('');
+  };
+
+  const handlePinSubmit = async () => {
+    if (!pendingChild) return;
+    setPinLoading(true);
+    setPinError('');
+    try {
+      const { accessToken } = await authApi.loginChild(pendingChild.id, pin);
+      setActiveChild({ ...pendingChild, avatar: pendingChild.avatar as any, token: accessToken });
+      setPendingChild(null);
+      navigate('/map');
+    } catch {
+      setPinError('קוד PIN שגוי, נסה שוב');
+    } finally {
+      setPinLoading(false);
+    }
   };
 
   return (
@@ -93,6 +114,58 @@ export default function LobbyScreen() {
       </div>
 
       {showParentLogin && <ParentLoginModal onClose={() => setShowParentLogin(false)} />}
+
+      {pendingChild && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          onClick={() => setPendingChild(null)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+          }}
+        >
+          <motion.div
+            initial={{ scale: 0.85, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--color-bg-card)', borderRadius: 'var(--radius-lg)',
+              padding: 32, width: '90%', maxWidth: 320,
+              boxShadow: 'var(--shadow-modal)', display: 'flex', flexDirection: 'column',
+              alignItems: 'center', gap: 16,
+            }}
+          >
+            <span style={{ fontSize: 48 }}>🔑</span>
+            <h3 style={{ fontSize: 22 }}>שלום, {pendingChild.name}!</h3>
+            <p style={{ color: 'var(--color-text-secondary)', fontSize: 16 }}>הכנס את קוד ה-PIN שלך</p>
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={6}
+              value={pin}
+              onChange={(e) => setPin(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handlePinSubmit()}
+              autoFocus
+              style={{
+                padding: '14px 16px', borderRadius: 'var(--radius-md)',
+                border: '2px solid var(--color-secondary)', fontSize: 24,
+                textAlign: 'center', letterSpacing: 8, width: '100%',
+                fontFamily: 'Nunito',
+              }}
+            />
+            {pinError && <p style={{ color: 'var(--color-error)', fontSize: 15 }}>{pinError}</p>}
+            <button
+              className="btn-primary"
+              onClick={handlePinSubmit}
+              disabled={pinLoading || pin.length === 0}
+              style={{ width: '100%' }}
+            >
+              {pinLoading ? '...' : 'כניסה'}
+            </button>
+          </motion.div>
+        </motion.div>
+      )}
     </motion.div>
   );
 }

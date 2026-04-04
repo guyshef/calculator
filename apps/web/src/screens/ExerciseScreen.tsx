@@ -88,7 +88,7 @@ export default function ExerciseScreen() {
   const levelNum = parseInt(level ?? '1', 10);
   const { playNarration, playSfx } = useAudio();
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['exercises', levelNum],
     queryFn: () => exercisesApi.getByLevel(levelNum),
   });
@@ -156,8 +156,17 @@ export default function ExerciseScreen() {
     navigate('/results', { state: { coinsEarned: earned, level: levelNum } });
   };
 
-  if (isLoading || !current) {
+  if (isLoading) {
     return <div style={{ textAlign: 'center', padding: 40 }}>טוען תרגילים...</div>;
+  }
+
+  if (isError || !current) {
+    return (
+      <div style={{ textAlign: 'center', padding: 40 }}>
+        <p style={{ fontSize: 20, marginBottom: 16 }}>שגיאה בטעינת תרגילים</p>
+        <button className="btn-primary" onClick={() => navigate('/')}>חזרה לדף הבית</button>
+      </div>
+    );
   }
 
   return (
